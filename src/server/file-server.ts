@@ -186,15 +186,17 @@ export class FileServer extends EventEmitter {
         }
 
         const ext = path.extname(fullPath).toLowerCase();
+        const fileName = path.basename(fullPath);
         
-        // Set appropriate content type
+        // Set appropriate content type with enhanced MIME types
         const mimeTypes: { [key: string]: string } = {
           '.txt': 'text/plain',
-          '.md': 'text/plain',
-          '.js': 'text/plain',
+          '.md': 'text/markdown',
+          '.js': 'text/javascript',
           '.ts': 'text/plain',
           '.json': 'application/json',
           '.html': 'text/html',
+          '.htm': 'text/html',
           '.css': 'text/css',
           '.jpg': 'image/jpeg',
           '.jpeg': 'image/jpeg',
@@ -202,17 +204,68 @@ export class FileServer extends EventEmitter {
           '.gif': 'image/gif',
           '.svg': 'image/svg+xml',
           '.webp': 'image/webp',
+          '.bmp': 'image/bmp',
+          '.ico': 'image/x-icon',
+          '.tiff': 'image/tiff',
+          '.tif': 'image/tiff',
           '.mp4': 'video/mp4',
           '.webm': 'video/webm',
+          '.ogv': 'video/ogg',
+          '.avi': 'video/x-msvideo',
+          '.mov': 'video/quicktime',
+          '.wmv': 'video/x-ms-wmv',
+          '.flv': 'video/x-flv',
+          '.mkv': 'video/x-matroska',
           '.mp3': 'audio/mpeg',
           '.wav': 'audio/wav',
-          '.pdf': 'application/pdf'
+          '.ogg': 'audio/ogg',
+          '.flac': 'audio/flac',
+          '.aac': 'audio/aac',
+          '.pdf': 'application/pdf',
+          '.doc': 'application/msword',
+          '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          '.xls': 'application/vnd.ms-excel',
+          '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          '.ppt': 'application/vnd.ms-powerpoint',
+          '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          '.zip': 'application/zip',
+          '.rar': 'application/x-rar-compressed',
+          '.7z': 'application/x-7z-compressed',
+          '.tar': 'application/x-tar',
+          '.gz': 'application/gzip',
+          '.xml': 'application/xml',
+          '.csv': 'text/csv'
         };
 
         const contentType = mimeTypes[ext] || 'application/octet-stream';
-        res.setHeader('Content-Type', contentType);
         
+        // Set headers for inline preview
+        res.setHeader('Content-Type', contentType);
+        res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+        
+        // Add cache control for better performance
+        res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hour cache
+        
+        // Set content length for better streaming
+        res.setHeader('Content-Length', stats.size.toString());
+        
+        // For certain file types that might have issues, add specific headers
+        if (ext === '.pdf') {
+          res.setHeader('X-Content-Type-Options', 'nosniff');
+          res.setHeader('Content-Security-Policy', "default-src 'self'; object-src 'self'");
+        }
+        
+        // Stream the file
         const stream = fs.createReadStream(fullPath);
+        
+        // Handle stream errors
+        stream.on('error', (error) => {
+          console.error('Stream error:', error);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to stream file' });
+          }
+        });
+        
         stream.pipe(res);
       } catch (error) {
         console.error('Error previewing file:', error);
