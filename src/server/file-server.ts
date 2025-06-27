@@ -559,12 +559,23 @@ export class FileServer extends EventEmitter {
         .btn:hover { background: #2ea043; }
         .btn-primary { background: #1f6feb; }
         .btn-primary:hover { background: #388bfd; }
+        .breadcrumb {
+            background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+            padding: 15px; margin-bottom: 20px; display: flex; align-items: center;
+        }
+        .breadcrumb-item {
+            color: #58a6ff; cursor: pointer; text-decoration: none;
+        }
+        .breadcrumb-item:hover { text-decoration: underline; }
+        .breadcrumb-separator { margin: 0 8px; color: #7d8590; }
         .file-list { display: grid; gap: 10px; }
         .file-item {
             background: #161b22; border: 1px solid #30363d; border-radius: 8px;
             padding: 15px; display: flex; align-items: center; justify-content: space-between;
         }
-        .file-info { display: flex; align-items: center; }
+        .file-item.folder { cursor: pointer; }
+        .file-item.folder:hover { background: #1c2128; border-color: #444c56; }
+        .file-info { display: flex; align-items: center; flex: 1; }
         .file-icon { font-size: 20px; margin-right: 12px; }
         .file-name { font-weight: 500; color: #f0f6fc; }
         .file-meta { color: #7d8590; font-size: 14px; margin-top: 4px; }
@@ -592,6 +603,10 @@ export class FileServer extends EventEmitter {
         </div>
         
         <div id="file-section" class="hidden">
+            <div id="breadcrumb" class="breadcrumb hidden">
+                <span class="breadcrumb-item" onclick="navigateToPath('')">🏠 Home</span>
+            </div>
+            
             <div style="margin-bottom: 20px;">
                 <button id="refresh-btn" class="btn">🔄 Refresh</button>
                 <button id="upload-btn" class="btn">📤 Upload</button>
@@ -611,6 +626,7 @@ export class FileServer extends EventEmitter {
     
     <script>
         let authToken = '';
+        let currentPath = '';
         
         // Auth handling
         document.getElementById('auth-form').addEventListener('submit', async (e) => {
@@ -644,19 +660,48 @@ export class FileServer extends EventEmitter {
         }
         
         // File operations
-        async function loadFiles() {
+        async function loadFiles(path = '') {
+            currentPath = path;
             try {
-                const response = await fetch('/api/files', {
+                const url = path ? \`/api/files?path=\${encodeURIComponent(path)}\` : '/api/files';
+                const response = await fetch(url, {
                     headers: { 'Authorization': 'Bearer ' + authToken }
                 });
                 
                 if (response.ok) {
                     const data = await response.json();
                     displayFiles(data.files || []);
+                    updateBreadcrumb(path);
                 }
             } catch (error) {
                 console.error('Error loading files:', error);
             }
+        }
+        
+        function updateBreadcrumb(path) {
+            const breadcrumb = document.getElementById('breadcrumb');
+            if (!path) {
+                breadcrumb.classList.add('hidden');
+                return;
+            }
+            
+            breadcrumb.classList.remove('hidden');
+            const parts = path.split('/').filter(Boolean);
+            let html = '<span class="breadcrumb-item" onclick="navigateToPath(\\'\\')">🏠 Home</span>';
+            
+            let currentPath = '';
+            parts.forEach((part, index) => {
+                currentPath += (currentPath ? '/' : '') + part;
+                html += '<span class="breadcrumb-separator">/</span>';
+                html += \`<span class="breadcrumb-item" onclick="navigateToPath('\${currentPath}')">\${escapeHtml(part)}</span>\`;
+            });
+            
+            breadcrumb.innerHTML = html;
+        }
+        
+        function navigateToPath(path) {
+            loadFiles(path);
+            clearSearch(); // Clear any active search when navigating
         }
         
         function displayFiles(files) {
@@ -671,8 +716,9 @@ export class FileServer extends EventEmitter {
                 const icon = file.type === 'folder' ? '📁' : getFileIcon(file.name);
                 const size = file.type === 'folder' ? '' : formatSize(file.size);
                 const date = new Date(file.modified).toLocaleDateString();
+                const isFolder = file.type === 'folder';
                 
-                return \`<div class="file-item">
+                return \`<div class="file-item \${isFolder ? 'folder' : ''}" \${isFolder ? \`onclick="navigateToPath('\${file.path}')"\` : ''}>
                     <div class="file-info">
                         <div class="file-icon">\${icon}</div>
                         <div>
@@ -681,8 +727,8 @@ export class FileServer extends EventEmitter {
                         </div>
                     </div>
                     <div class="file-actions">
-                        \${file.type === 'file' ? \`<button class="btn" onclick="previewFile('\${file.path}')">👁️ Preview</button>\` : ''}
-                        <button class="btn" onclick="downloadFile('\${file.path}')">⬇️ Download</button>
+                        \${file.type === 'file' ? \`<button class="btn" onclick="event.stopPropagation(); previewFile('\${file.path}')">👁️ Preview</button>\` : ''}
+                        <button class="btn" onclick="event.stopPropagation(); downloadFile('\${file.path}')">⬇️ Download</button>
                     </div>
                 </div>\`;
             }).join('');
@@ -721,14 +767,14 @@ export class FileServer extends EventEmitter {
         }
         
         // Event listeners
-        document.getElementById('refresh-btn').addEventListener('click', loadFiles);
+        document.getElementById('refresh-btn').addEventListener('click', () => loadFiles(currentPath));
         document.getElementById('upload-btn').addEventListener('click', () => {
             document.getElementById('file-input').click();
         });
 
-        // Download entire folder as zip
+        // Download current directory as zip
         document.getElementById('download-zip-btn').addEventListener('click', () => {
-            downloadFile(''); // Empty path triggers download of root (entire shared folder)
+            downloadFile(currentPath); // Download current directory
         });
 
         // Search functionality
@@ -747,6 +793,7 @@ export class FileServer extends EventEmitter {
             if (files.length === 0) return;
             
             const formData = new FormData();
+            formData.append('path', currentPath); // Include current path for uploads
             files.forEach(file => formData.append('files', file));
             
             try {
@@ -757,7 +804,7 @@ export class FileServer extends EventEmitter {
                 });
                 
                 if (response.ok) {
-                    loadFiles();
+                    loadFiles(currentPath);
                     e.target.value = '';
                 }
             } catch (error) {
@@ -773,7 +820,11 @@ export class FileServer extends EventEmitter {
             }
 
             try {
-                const response = await fetch(\`/api/search?q=\${encodeURIComponent(query)}\`, {
+                const url = currentPath ? 
+                    \`/api/search?q=\${encodeURIComponent(query)}&path=\${encodeURIComponent(currentPath)}\` :
+                    \`/api/search?q=\${encodeURIComponent(query)}\`;
+                    
+                const response = await fetch(url, {
                     headers: { 'Authorization': 'Bearer ' + authToken }
                 });
                 
@@ -798,8 +849,9 @@ export class FileServer extends EventEmitter {
                     const icon = file.type === 'folder' ? '📁' : getFileIcon(file.name);
                     const size = file.type === 'folder' ? '' : formatSize(file.size);
                     const date = new Date(file.modified).toLocaleDateString();
+                    const isFolder = file.type === 'folder';
                     
-                    return \`<div class="file-item">
+                    return \`<div class="file-item \${isFolder ? 'folder' : ''}" \${isFolder ? \`onclick="navigateToPath('\${file.path}')"\` : ''}>
                         <div class="file-info">
                             <div class="file-icon">\${icon}</div>
                             <div>
@@ -808,8 +860,8 @@ export class FileServer extends EventEmitter {
                             </div>
                         </div>
                         <div class="file-actions">
-                            \${file.type === 'file' ? \`<button class="btn" onclick="previewFile('\${file.path}')">👁️ Preview</button>\` : ''}
-                            <button class="btn" onclick="downloadFile('\${file.path}')">⬇️ Download</button>
+                            \${file.type === 'file' ? \`<button class="btn" onclick="event.stopPropagation(); previewFile('\${file.path}')">👁️ Preview</button>\` : ''}
+                            <button class="btn" onclick="event.stopPropagation(); downloadFile('\${file.path}')">⬇️ Download</button>
                         </div>
                     </div>\`;
                 }).join('');

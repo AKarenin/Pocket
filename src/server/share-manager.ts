@@ -233,12 +233,31 @@ export class ShareManager extends EventEmitter {
     const fileServer = new FileServer(share.path, share.passcode, share.port);
     await fileServer.start();
 
+    // Get the actual port the file server is running on (may have changed due to conflicts)
+    const actualPort = fileServer.getPort();
+    
+    // Update share port if it changed
+    if (actualPort !== share.port) {
+      console.log(`🔧 Port updated for share ${shareId}: ${share.port} -> ${actualPort}`);
+      share.port = actualPort;
+      
+      // Update the proxy route with the new port
+      const proxyRoute: ProxyRoute = {
+        shareId: shareId,
+        subdomain: shareId,
+        targetPort: actualPort,
+        passcode: share.passcode,
+        active: true
+      };
+      this.proxy.addRoute(proxyRoute); // This will replace the existing route
+    } else {
+      // Just update the existing route to active
+      this.proxy.updateRouteStatus(shareId, true);
+    }
+
     this.fileServers.set(shareId, fileServer);
     share.status = 'active';
     share.lastAccessed = new Date();
-
-    // Update proxy route to active
-    this.proxy.updateRouteStatus(shareId, true);
 
     await this.saveShares();
     console.log(`🔄 Share started: ${shareId}`);
@@ -332,6 +351,26 @@ export class ShareManager extends EventEmitter {
             try {
               const fileServer = new FileServer(share.path, share.passcode, share.port);
               await fileServer.start();
+              
+              // Get the actual port the file server is running on (may have changed due to conflicts)
+              const actualPort = fileServer.getPort();
+              
+              // Update share port and proxy route if it changed
+              if (actualPort !== share.port) {
+                console.log(`🔧 Port updated for auto-started share ${share.id}: ${share.port} -> ${actualPort}`);
+                share.port = actualPort;
+                
+                // Update the proxy route with the new port
+                const updatedProxyRoute: ProxyRoute = {
+                  shareId: share.id,
+                  subdomain: share.id,
+                  targetPort: actualPort,
+                  passcode: share.passcode,
+                  active: true
+                };
+                this.proxy.addRoute(updatedProxyRoute); // This will replace the existing route
+              }
+              
               this.fileServers.set(share.id, fileServer);
               console.log(`🔄 Auto-started share: ${share.id}`);
             } catch (error) {
