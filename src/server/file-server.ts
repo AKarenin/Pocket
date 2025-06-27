@@ -216,11 +216,13 @@ export class FileServer extends EventEmitter {
           '.wmv': 'video/x-ms-wmv',
           '.flv': 'video/x-flv',
           '.mkv': 'video/x-matroska',
+          '.m4v': 'video/mp4',
           '.mp3': 'audio/mpeg',
           '.wav': 'audio/wav',
           '.ogg': 'audio/ogg',
           '.flac': 'audio/flac',
           '.aac': 'audio/aac',
+          '.m4a': 'audio/mp4',
           '.pdf': 'application/pdf',
           '.doc': 'application/msword',
           '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -238,35 +240,73 @@ export class FileServer extends EventEmitter {
         };
 
         const contentType = mimeTypes[ext] || 'application/octet-stream';
+        const isVideo = ['.mp4', '.webm', '.ogv', '.avi', '.mov', '.wmv', '.flv', '.mkv', '.m4v'].includes(ext);
+        const isAudio = ['.mp3', '.wav', '.ogg', '.flac', '.aac', '.m4a'].includes(ext);
         
-        // Set headers for inline preview
-        res.setHeader('Content-Type', contentType);
-        res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+        // Handle range requests for video/audio streaming
+        const range = req.headers.range;
+        const fileSize = stats.size;
         
-        // Add cache control for better performance
-        res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hour cache
-        
-        // Set content length for better streaming
-        res.setHeader('Content-Length', stats.size.toString());
-        
-        // For certain file types that might have issues, add specific headers
-        if (ext === '.pdf') {
-          res.setHeader('X-Content-Type-Options', 'nosniff');
-          res.setHeader('Content-Security-Policy', "default-src 'self'; object-src 'self'");
-        }
-        
-        // Stream the file
-        const stream = fs.createReadStream(fullPath);
-        
-        // Handle stream errors
-        stream.on('error', (error) => {
-          console.error('Stream error:', error);
-          if (!res.headersSent) {
-            res.status(500).json({ error: 'Failed to stream file' });
+        if ((isVideo || isAudio) && range) {
+          // Parse range header
+          const parts = range.replace(/bytes=/, "").split("-");
+          const start = parseInt(parts[0], 10);
+          const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+          const chunksize = (end - start) + 1;
+          
+          // Set headers for partial content
+          res.writeHead(206, {
+            'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': chunksize.toString(),
+            'Content-Type': contentType,
+            'Content-Disposition': `inline; filename="${fileName}"`,
+            'Cache-Control': 'public, max-age=3600'
+          });
+          
+          // Create stream with range
+          const stream = fs.createReadStream(fullPath, { start, end });
+          stream.on('error', (error) => {
+            console.error('Stream error:', error);
+            if (!res.headersSent) {
+              res.status(500).json({ error: 'Failed to stream file' });
+            }
+          });
+          stream.pipe(res);
+          
+        } else {
+          // Set headers for inline preview
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+          res.setHeader('Content-Length', stats.size.toString());
+          
+          // Add cache control for better performance
+          res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hour cache
+          
+          // Enable range requests for video/audio files
+          if (isVideo || isAudio) {
+            res.setHeader('Accept-Ranges', 'bytes');
           }
-        });
-        
-        stream.pipe(res);
+          
+          // For certain file types that might have issues, add specific headers
+          if (ext === '.pdf') {
+            res.setHeader('X-Content-Type-Options', 'nosniff');
+            res.setHeader('Content-Security-Policy', "default-src 'self'; object-src 'self'");
+          }
+          
+          // Stream the file
+          const stream = fs.createReadStream(fullPath);
+          
+          // Handle stream errors
+          stream.on('error', (error) => {
+            console.error('Stream error:', error);
+            if (!res.headersSent) {
+              res.status(500).json({ error: 'Failed to stream file' });
+            }
+          });
+          
+          stream.pipe(res);
+        }
       } catch (error) {
         console.error('Error previewing file:', error);
         res.status(500).json({ error: 'Failed to preview file' });
