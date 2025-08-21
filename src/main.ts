@@ -61,17 +61,23 @@ async function initializeShareManager(): Promise<void> {
 
     shareManager.on('tunnel-started', () => {
       console.log('🌐 Tunnel is now online');
-      mainWindow?.webContents.send('tunnel-status-changed', { isRunning: true });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('tunnel-status-changed', { isRunning: true });
+      }
     });
 
     shareManager.on('tunnel-stopped', () => {
       console.log('🌐 Tunnel is now offline');
-      mainWindow?.webContents.send('tunnel-status-changed', { isRunning: false });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('tunnel-status-changed', { isRunning: false });
+      }
     });
 
     shareManager.on('tunnel-error', (error) => {
       console.log('🌐 Tunnel error:', error.message);
-      mainWindow?.webContents.send('tunnel-status-changed', { isRunning: false, error: error.message });
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('tunnel-status-changed', { isRunning: false, error: error.message });
+      }
     });
 
     await shareManager.start();

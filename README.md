@@ -1,263 +1,82 @@
-# Pocket File Sharing
+MVP for Pocket: Ephemeral Access Framework
 
-A secure desktop file sharing application that creates instant, password-protected public URLs for your folders using Cloudflare Tunnel integration.
+Vision
+We imagine a world where data flows like conversation — immediate, private and dynamic. Pocket re‑imagines file sharing as a connection, not a destination. It allows humans and AI agents to share work securely and instantly without uploading to permanent storage. As our digital lives become more agentic and distributed across devices, Pocket bridges the gap, enabling creative workflows and collaborations that respect ownership and privacy.
 
-## Features
+Mission
+Pocket empowers people and autonomous agents to share and collaborate on data in a frictionless, local‑first way. Our mission is to turn storage into a fleeting moment of access: a secure, time‑limited window into your files where your data remains at the source. By eliminating the need to upload to third‑party servers, Pocket protects sensitive content, cuts costs and reduces latency. Whether you're moving a sketch from a tablet to a workstation, synchronising AI agent outputs across edge devices or handing off large media files to collaborators, Pocket gives you control, speed and peace of mind.
 
-### 🚀 Core Functionality
-- **Instant Sharing**: Share any folder with a single click
-- **Unique URLs**: Each share gets a unique `https://{shareId}.pocketfileshare.com` URL
-- **Password Protection**: 6-digit passcodes for secure access
-- **Real-time Updates**: Live file synchronization via WebSocket
-- **Mobile Responsive**: Clean web interface works on all devices
+Core Features of the MVP
+🚀 Instant, Secure Sharing
 
-### 🔒 Security & Access Control
-- **HTTPS Only**: All traffic encrypted via Cloudflare
-- **Rate Limiting**: Prevents brute force passcode attempts
-- **Directory Traversal Protection**: Secure file access
-- **Session Management**: Remember passcode during browser session
+Ephemeral access – Share any folder without uploading; create a short‑lived, permissioned window to your data.
 
-### 💻 Desktop Application
-- **Modern UI**: Clean GitHub/Vercel-inspired interface
-- **System Tray**: Minimize to system tray
-- **Persistent Storage**: Remember shares between app restarts
-- **Cross-platform**: Works on macOS, Windows, and Linux
+Unique URLs – Every share gets a unique address (for example, https://{shareId}.pocketfileshare.com) so you can invite collaborators quickly.
 
-### 🌐 Web Interface Features
-- **File Browser**: Navigate folder structure with breadcrumbs
-- **File Preview**: Built-in preview for images and text files
-- **Download Options**: Single files or entire folders as ZIP
-- **Search**: Find files within shared directories
-- **File Icons**: Appropriate icons for different file types
+Passcode protection – Simple 6‑digit passcodes grant access; you decide who can view, download or edit.
 
-## Prerequisites
+Real‑time updates – Changes to your files propagate instantly through a WebSocket connection.
 
-1. **Node.js**: Version 18 or higher
-2. **Cloudflared**: Cloudflare Tunnel client
-3. **Cloudflare Account**: With a configured tunnel
+Cross‑platform – A modern desktop app built with Electron, React and TypeScript works on macOS, Windows and Linux.
 
-### Installing Cloudflared
+🔒 Built‑In Security
 
-#### macOS
-```bash
-brew install cloudflared
-```
+Zero custody – Your data never sits on our servers; Pocket opens a tunnel directly from your device.
 
-#### Windows
-Download from [Cloudflare's official page](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/installation/)
+HTTPS everywhere – Cloudflare Tunnel handles encryption and public access, keeping the connection secure.
 
-#### Linux
-```bash
-# Debian/Ubuntu
-wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-sudo dpkg -i cloudflared-linux-amd64.deb
+Rate limiting & anti‑brute force – Stops malicious attempts against passcodes.
 
-# Other distributions - download binary
-wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-chmod +x cloudflared-linux-amd64
-sudo mv cloudflared-linux-amd64 /usr/local/bin/cloudflared
-```
+Path traversal protection – Only the intended folder is exposed; everything else stays private.
 
-## Setup Instructions
+Session management – Pocket remembers passcodes within a browser session for convenience.
 
-### 1. Clone and Install Dependencies
+🌐 Web Interface & Desktop Experience
 
-```bash
-git clone <repository-url>
-cd pocket-file-sharing
-npm install
-```
+Responsive browser view – Recipients can explore your shared folder from any device.
 
-### 2. Configure Cloudflare Tunnel
+File browser & preview – Navigate using breadcrumbs, preview images and text files, and search within the directory. This function is currently unstable in the MVP.
 
-The application is pre-configured to use the tunnel ID `442abcac-4aab-409f-854a-1c879870b60d` with the domain `pocketfileshare.com`.
+Download options – Fetch single files or entire directories as ZIP archives.
 
-You need to place the tunnel credentials file at:
-```
-~/.cloudflared/442abcac-4aab-409f-854a-1c879870b60d.json
-```
+Persistent shares – Pocket remembers your shares across restarts; start/stop or remove them with one click.
 
-### 3. Build and Run
+System tray – Keep the app running in the background with quick access from the tray.
 
-#### Development Mode
-```bash
-npm run dev
-```
+How It Works
 
-#### Production Build
-```bash
-npm run build
-npm start
-```
+Create a share – In the desktop app, choose a folder to share. Pocket generates a unique share ID, sets up an Express server on a random local port and creates a 6‑digit passcode.
 
-#### Create Distributable
-```bash
-npm run dist
-```
+Open a tunnel – Pocket uses Cloudflare Tunnel to expose the local server at https://{shareId}.pocketfileshare.com without exposing your local network.
 
-## How It Works
+Invite others – Share the URL and passcode. Recipients can access your files directly through HTTPS; they never need to install anything.
 
-### Share Creation Process
-1. Click "Add Folder" to select a directory
-2. System generates:
-   - Unique share ID (format: `mcc` + 19 random characters)
-   - 6-digit numeric passcode
-   - Dedicated Express server on random port (50000-65000)
-3. Cloudflare tunnel routes `{shareId}.pocketfileshare.com` to local server
-4. Share becomes accessible via public URL
+Live collaboration – Changes appear in real time via WebSocket. You can revoke access at any time by stopping the share.
 
-### Architecture Overview
+Prerequisites & Setup
 
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Electron UI   │    │   Share Manager  │    │ Cloudflare Tunnel│
-│                 │◄──►│                  │◄──►│                 │
-│ React Frontend  │    │ Express Servers  │    │ Public Internet │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   File System   │    │   WebSocket      │    │ Web Clients     │
-│   Monitoring    │    │   Real-time      │    │ (Browser)       │
-│                 │    │   Updates        │    │                 │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-```
+Pocket is open‑source and built with Node.js. To run it yourself you will need:
 
-### Technology Stack
-- **Frontend**: Electron + React + TypeScript
-- **Backend**: Express.js servers (one per share)
-- **Real-time**: WebSocket for live updates
-- **File Watching**: Chokidar for filesystem monitoring
-- **Tunneling**: Cloudflare Tunnel for public access
-- **Security**: Passcode authentication + HTTPS
+Node.js 18+
 
-## Usage
+A Cloudflare account and the Cloudflared client
 
-### Creating a Share
-1. Launch the application
-2. Click "Add Folder" button
-3. Select the directory you want to share
-4. Copy the generated URL and passcode
-5. Share these credentials with your intended recipients
+The tunnel credentials file for a pre‑configured tunnel (442abcac-4aab-409f-854a-1c879870b60d) saved at ~/.cloudflared/442abcac-4aab-409f-854a-1c879870b60d.json.
 
-### Accessing a Share
-1. Open the provided URL in any web browser
-2. Enter the 6-digit passcode
-3. Browse, preview, and download files
-4. Changes to the shared folder appear in real-time
+Clone this repository, install dependencies, set up the Cloudflare tunnel and run the app in development or production mode. See the original README for detailed commands.
 
-### Managing Shares
-- **Start/Stop**: Toggle individual shares on/off
-- **Remove**: Delete shares (stops server and removes from list)
-- **Monitor**: View access counts and last accessed times
-- **Tunnel Status**: Monitor Cloudflare tunnel connection
+Future use cases for Pocket:
 
-## File Types & Features
+Design and media workflows – Hand off high‑resolution images, videos or animation assets without waiting for uploads.
 
-### Supported Operations
-- **Browse**: Navigate through folder structure
-- **Download**: Individual files or folders (as ZIP)
-- **Preview**: Images, text files, and JSON
-- **Search**: Find files by name within shared directory
+Edge and IoT devices – Transfer data from sensors and devices to analysis tools without routing through the cloud.
 
-### File Type Icons
-- 📄 Documents (PDF, DOC, TXT)
-- 🖼️ Images (JPG, PNG, GIF, SVG)
-- 🎥 Videos (MP4, AVI, MOV)
-- 🎵 Audio (MP3, WAV, FLAC)
-- 📦 Archives (ZIP, RAR, 7Z)
-- ⚡ Code files (JS, HTML, CSS)
+Agentic AI and robotics – Provide secure, revocable windows for agents to read or write data during their tasks.
 
-## Security Considerations
+Collaborative creation – Share drafts or working folders in real time with teammates while retaining full control of your files.
 
-### Access Control
-- **Passcode Protection**: All shares require 6-digit codes
-- **Rate Limiting**: Prevents brute force attacks
-- **Path Validation**: Prevents directory traversal
-- **HTTPS Only**: All traffic encrypted
+License
 
-### Network Security
-- **Cloudflare Protection**: DDoS mitigation and security
-- **Origin Validation**: Requests verified through tunnel
-- **No Direct Exposure**: Local ports not directly accessible
-- **Session Management**: Secure passcode storage
+Pocket is distributed under the MIT License. See the LICENSE file for details.
 
-## Troubleshooting
-
-### Common Issues
-
-#### Tunnel Not Starting
-- Verify cloudflared is installed: `cloudflared --version`
-- Check credentials file exists in `~/.cloudflared/`
-- Try restarting tunnel from the app interface
-- Check console logs for detailed error messages
-
-#### Share Not Accessible
-- Confirm tunnel is running (green indicator in app)
-- Verify passcode is entered correctly
-- Check if share is active (toggle on/off)
-
-#### Port Conflicts
-- Application automatically finds available ports (50000-65000)
-- Restart the app if port issues persist
-
-### Logs and Debugging
-- Check application console for detailed error messages
-- Tunnel logs appear in the main process output
-- Enable development mode for additional debugging
-
-## Development
-
-### Project Structure
-```
-src/
-├── main.ts                 # Electron main process
-├── preload.ts             # Electron preload scripts
-├── types/                 # TypeScript type definitions
-├── renderer/              # React frontend
-│   ├── App.tsx
-│   ├── components/
-│   └── styles.css
-└── server/                # Backend services
-    ├── share-manager.ts   # Share orchestration
-    ├── share-server.ts    # Individual share servers
-    ├── cloudflare-tunnel.ts # Tunnel management
-    └── file-watcher.ts    # File system monitoring
-```
-
-### Building from Source
-```bash
-# Install dependencies
-npm install
-
-# Development with hot reload
-npm run dev
-
-# Build for production
-npm run build
-
-# Package for distribution
-npm run dist
-```
-
-### Contributing
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## License
-
-MIT License - see LICENSE file for details.
-
-## Support
-
-For issues and questions:
-1. Check the troubleshooting section
-2. Review application logs
-3. Open an issue on GitHub
-
----
-
-**Note**: This application uses the pre-configured Cloudflare tunnel `442abcac-4aab-409f-854a-1c879870b60d` with the domain `pocketfileshare.com`. You need to set up the tunnel credentials file to get started. 
+Storage as a place is over. With Pocket, storage is a connection — fleeting, secure and under your control.

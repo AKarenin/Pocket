@@ -134,6 +134,13 @@ export class CloudflareTunnel extends EventEmitter {
       fs.mkdirSync(configDir, { recursive: true });
     }
 
+    // Check if config already exists - if so, don't overwrite it
+    if (fs.existsSync(configPath)) {
+      console.log('✅ Using existing tunnel config (preserving custom settings)');
+      return;
+    }
+
+    // Only create new config if none exists
     const config = `tunnel: ${this.config.tunnelId}
 credentials-file: ${path.join(configDir, `${this.config.tunnelId}.json`)}
 
