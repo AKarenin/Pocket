@@ -6,6 +6,61 @@ We imagine a world where data flows like conversation — immediate, private and
 ### Mission
 Pocket empowers people and autonomous agents to share and collaborate on data in a frictionless, local‑first way. Our mission is to turn storage into a fleeting moment of access: a secure, time‑limited window into your files where your data remains at the source. By eliminating the need to upload to third‑party servers, Pocket protects sensitive content, cuts costs and reduces latency. Whether you're moving a sketch from a tablet to a workstation, synchronising AI agent outputs across edge devices or handing off large media files to collaborators, Pocket gives you control, speed and peace of mind.
 
+### Library Overview
+
+Pocket can now be consumed directly as a Node.js library. Import the
+`PocketShare` helper to explore directories, stream files, zip folders and
+modify content without standing up an HTTP server. Sessions are protected with
+the same passcode gate that the Pocket web server uses so human-to-human and
+agent-to-agent exchanges follow the identical access model.
+
+```ts
+import { createPocketShare } from 'pocket-file-sharing';
+
+const share = createPocketShare({
+  rootPath: '/Users/me/Documents/designs',
+  passcode: '654321',
+});
+
+const session = share.authenticate('654321');
+const items = await session.list();
+const preview = await session.readFile('concept.pdf');
+await session.writeFile('notes/todo.txt', 'Ship the new icon set');
+
+// Revoke the token when you are done interacting with the share
+session.close();
+```
+
+### Cloudflare Tunnel Integration
+
+For decentralized agent-to-agent sharing you can start the built-in HTTP
+server and automatically attach a Cloudflare Tunnel. This opens a globally
+reachable URL that enforces the same passcode protection as the local API.
+
+```ts
+const share = createPocketShare({
+  rootPath: '/Users/me/Documents/designs',
+  passcode: '654321',
+});
+
+const connection = await share.startSharing({
+  tunnel: {
+    tunnelId: '442abcac-4aab-409f-854a-1c879870b60d',
+    domain: 'pocketfileshare.com',
+    subdomain: 'agent-hub', // optional; a random one is generated when omitted
+  },
+});
+
+console.log('Public URL:', connection.publicUrl);
+console.log('Local URL:', connection.localUrl);
+
+// Later, tear everything down (this also stops the Cloudflare tunnel)
+await connection.stop();
+```
+
+You can also call `await share.stopSharing()` to close any running server from
+elsewhere in your application.
+
 ### Core Features of the MVP
 #### 🚀 Instant, Secure Sharing
 

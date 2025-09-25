@@ -2,7 +2,8 @@
   "name": "pocket-file-sharing",
   "version": "1.0.0",
   "description": "Desktop file sharing application with Cloudflare tunnel integration",
-  "main": "dist/main.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc && npm run build:renderer",
     "build:renderer": "webpack --mode production",

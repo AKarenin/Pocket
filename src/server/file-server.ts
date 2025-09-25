@@ -485,6 +485,11 @@ export class FileServer extends EventEmitter {
   public async start(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.server = this.app.listen(this.port, () => {
+        const address = this.server?.address();
+        if (typeof address === 'object' && address !== null) {
+          this.port = address.port;
+        }
+
         console.log(`📁 File server started on port ${this.port}`);
         console.log(`🔗 Access: http://localhost:${this.port}`);
         this.emit('started', { port: this.port });

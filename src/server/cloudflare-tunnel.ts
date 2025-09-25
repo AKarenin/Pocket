@@ -8,6 +8,10 @@ export interface TunnelConfig {
   tunnelId: string;
   domain: string;
   proxyPort: number;
+  hostname?: string;
+  credentialsFile?: string;
+  configPath?: string;
+  binaryPath?: string;
 }
 
 export interface TunnelStatus {
@@ -61,7 +65,8 @@ export class CloudflareTunnel extends EventEmitter {
       this.status.error = undefined;
       
       console.log('✅ Cloudflare tunnel started');
-      console.log(`🔗 Public access: https://*.${this.config.domain}`);
+      const hostname = this.config.hostname ?? `*.${this.config.domain}`;
+      console.log(`🔗 Public access: https://${hostname}`);
       
       this.emit('started', this.status);
     } catch (error) {
@@ -111,7 +116,8 @@ export class CloudflareTunnel extends EventEmitter {
 
   private async checkCloudflaredInstalled(): Promise<boolean> {
     return new Promise((resolve) => {
-      const process = spawn('cloudflared', ['--version'], { stdio: 'ignore' });
+      const binary = this.config.binaryPath ?? 'cloudflared';
+      const process = spawn(binary, ['--version'], { stdio: 'ignore' });
       process.on('error', () => resolve(false));
       process.on('exit', (code) => resolve(code === 0));
       setTimeout(() => {
@@ -122,43 +128,56 @@ export class CloudflareTunnel extends EventEmitter {
   }
 
   private async checkCredentials(): Promise<boolean> {
-    const credentialsPath = path.join(os.homedir(), '.cloudflared', `${this.config.tunnelId}.json`);
+    const credentialsPath = this.config.credentialsFile ?? path.join(os.homedir(), '.cloudflared', `${this.config.tunnelId}.json`);
     return fs.existsSync(credentialsPath);
   }
 
   private async createConfig(): Promise<void> {
-    const configDir = path.join(os.homedir(), '.cloudflared');
-    const configPath = path.join(configDir, 'config.yml');
+    const configPath = this.config.configPath ?? path.join(os.homedir(), '.cloudflared', 'config.yml');
+    const configDir = path.dirname(configPath);
 
     if (!fs.existsSync(configDir)) {
       fs.mkdirSync(configDir, { recursive: true });
     }
 
-    // Check if config already exists - if so, don't overwrite it
-    if (fs.existsSync(configPath)) {
+    const shouldOverwrite = Boolean(this.config.configPath);
+
+    if (!shouldOverwrite && fs.existsSync(configPath)) {
       console.log('✅ Using existing tunnel config (preserving custom settings)');
       return;
     }
 
-    // Only create new config if none exists
-    const config = `tunnel: ${this.config.tunnelId}
-credentials-file: ${path.join(configDir, `${this.config.tunnelId}.json`)}
+    const credentialsPath = this.config.credentialsFile ?? path.join(os.homedir(), '.cloudflared', `${this.config.tunnelId}.json`);
+    const hostname = this.config.hostname ?? `*.${this.config.domain}`;
 
-ingress:
-  - hostname: "*.${this.config.domain}"
-    service: http://localhost:${this.config.proxyPort}
-  - service: http_status:404
-`;
+    const configLines = [
+      `tunnel: ${this.config.tunnelId}`,
+      `credentials-file: ${credentialsPath}`,
+      '',
+      'ingress:',
+      `  - hostname: "${hostname}"`,
+      `    service: http://localhost:${this.config.proxyPort}`,
+      '  - service: http_status:404',
+      ''
+    ];
 
-    fs.writeFileSync(configPath, config);
+    fs.writeFileSync(configPath, `${configLines.join('\n')}\n`);
     console.log('✅ Tunnel config created');
   }
 
   private async startProcess(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const args = ['tunnel', 'run', this.config.tunnelId];
-      
-      this.process = spawn('cloudflared', args, {
+      const args = ['tunnel'];
+
+      if (this.config.configPath) {
+        args.push('--config', this.config.configPath);
+      }
+
+      args.push('run', this.config.tunnelId);
+
+      const binary = this.config.binaryPath ?? 'cloudflared';
+
+      this.process = spawn(binary, args, {
         stdio: ['ignore', 'pipe', 'pipe'],
         env: { ...process.env }
       });
