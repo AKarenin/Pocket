@@ -1,0 +1,14 @@
+{
+  "name": "pocket_api",
+  "version": "1.0.0",
+  "description": "Headless Pocket API server",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/server.js && node --check lib/auth.js && node --check lib/share-store.js && node --check lib/websocket-hub.js && node --check lib/webhook.js && node --check lib/utils.js"
+  },
+  "keywords": ["pocket", "file-sharing", "api"],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs"
+}
