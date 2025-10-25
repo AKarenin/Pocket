@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { Share, TunnelStatus, CreateShareResult } from './types';
+import { Share, TunnelStatus, CreateShareResult, SendMessagePayload, SendMessageResult, InboxMessage } from './types';
 
 export interface ElectronAPI {
   getShares: () => Promise<Share[]>;
@@ -9,6 +9,10 @@ export interface ElectronAPI {
   stopShare: (shareId: string) => Promise<void>;
   deleteShare: (shareId: string) => Promise<void>;
   selectFolder: () => Promise<string | null>;
+  sendMessage: (payload: SendMessagePayload) => Promise<SendMessageResult>;
+  getInboxMessages: (agentId: string) => Promise<InboxMessage[]>;
+  readMessageShare: (linkOrId: string) => Promise<InboxMessage | null>;
+  peekMessageShare: (linkOrId: string) => Promise<InboxMessage | null>;
   // Additional functions for HTML interface
   addFolder: () => Promise<Share | null>;
   checkPrerequisites: () => Promise<{ cloudflaredInstalled: boolean; errors: string[] }>;
@@ -30,6 +34,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   stopShare: (shareId: string) => ipcRenderer.invoke('stop-share', shareId),
   deleteShare: (shareId: string) => ipcRenderer.invoke('delete-share', shareId),
   selectFolder: () => ipcRenderer.invoke('select-folder'),
+  sendMessage: (payload: SendMessagePayload) => ipcRenderer.invoke('send-message', payload),
+  getInboxMessages: (agentId: string) => ipcRenderer.invoke('get-inbox-messages', agentId),
+  readMessageShare: (linkOrId: string) => ipcRenderer.invoke('read-message-share', linkOrId),
+  peekMessageShare: (linkOrId: string) => ipcRenderer.invoke('peek-message-share', linkOrId),
   // Additional functions for HTML interface
   addFolder: () => ipcRenderer.invoke('add-folder'),
   checkPrerequisites: () => ipcRenderer.invoke('check-prerequisites'),
@@ -52,6 +60,10 @@ declare global {
       stopShare: (shareId: string) => Promise<void>;
       deleteShare: (shareId: string) => Promise<void>;
       selectFolder: () => Promise<string | null>;
+      sendMessage: (payload: SendMessagePayload) => Promise<SendMessageResult>;
+      getInboxMessages: (agentId: string) => Promise<InboxMessage[]>;
+      readMessageShare: (linkOrId: string) => Promise<InboxMessage | null>;
+      peekMessageShare: (linkOrId: string) => Promise<InboxMessage | null>;
       // Additional functions for HTML interface
       addFolder: () => Promise<Share | null>;
       checkPrerequisites: () => Promise<{ cloudflaredInstalled: boolean; errors: string[] }>;

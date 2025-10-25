@@ -1,9 +1,10 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron';
 import * as path from 'path';
 import * as os from 'os';
-import { ShareManager, ShareManagerConfig } from './server/share-manager';
+import { ShareManager, ShareManagerConfig, MessageShareResult } from './server/share-manager';
 import { TunnelConfig } from './server/cloudflare-tunnel';
 import { execSync } from 'child_process';
+import { MessageShareRecord, SendMessagePayload, SendMessageResult } from './types';
 
 let mainWindow: BrowserWindow;
 let shareManager: ShareManager | null = null;
@@ -15,6 +16,44 @@ const PROXY_PORT = 8080;
 const SHARE_PORT_START = 50000;
 const SHARE_PORT_END = 65000;
 const DATA_PATH = path.join(os.homedir(), '.pocket-file-sharing');
+
+function toIpcMessage<T = unknown>(share: MessageShareResult<T>): MessageShareRecord<T> {
+  return {
+    id: share.id,
+    payload: share.payload,
+    createdAt: share.createdAt.toISOString(),
+    expiresAt: share.expiresAt.toISOString(),
+    deleteOnRead: share.deleteOnRead,
+    from: share.from,
+    recipients: [...share.recipients],
+    metadata: share.metadata ? { ...share.metadata } : undefined,
+    lastAccessed: share.lastAccessed ? share.lastAccessed.toISOString() : undefined,
+  };
+}
+
+function toSendMessageResult<T = unknown>(share: MessageShareResult<T>): SendMessageResult {
+  return {
+    shareId: share.id,
+    expiresAt: share.expiresAt.toISOString(),
+    recipients: [...share.recipients],
+    from: share.from,
+    metadata: share.metadata ? { ...share.metadata } : undefined,
+  };
+}
+
+function extractShareId(linkOrId: string): string {
+  if (!linkOrId) {
+    return linkOrId;
+  }
+
+  const trimmed = linkOrId.trim();
+
+  if (trimmed.startsWith('pocket://')) {
+    return trimmed.replace('pocket://', '');
+  }
+
+  return trimmed;
+}
 
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
@@ -131,12 +170,62 @@ ipcMain.handle('get-tunnel-status', async () => {
 
 ipcMain.handle('create-share', async (event, folderPath: string) => {
   if (!shareManager) throw new Error('Share manager not initialized');
-  
+
   // Generate a random passcode
   const passcode = Math.floor(100000 + Math.random() * 900000).toString();
-  
+
   const shareId = await shareManager.createShare(folderPath, passcode);
   return { shareId, passcode };
+});
+
+ipcMain.handle('send-message', async (event, payload: SendMessagePayload) => {
+  if (!shareManager) throw new Error('Share manager not initialized');
+
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid message payload');
+  }
+
+  const { content, ...options } = payload;
+
+  const share = shareManager.createMessageShare(content, options);
+  return toSendMessageResult(share);
+});
+
+ipcMain.handle('get-inbox-messages', async (event, agentId: string) => {
+  if (!shareManager) throw new Error('Share manager not initialized');
+
+  if (!agentId || typeof agentId !== 'string') {
+    return [];
+  }
+
+  const messages = shareManager.consumeInbox(agentId);
+  return messages.map((message) => toIpcMessage(message));
+});
+
+ipcMain.handle('read-message-share', async (event, linkOrId: string) => {
+  if (!shareManager) throw new Error('Share manager not initialized');
+
+  if (!linkOrId || typeof linkOrId !== 'string') {
+    throw new Error('Invalid share identifier');
+  }
+
+  const shareId = extractShareId(linkOrId);
+  const message = shareManager.getMessageShare(shareId, true);
+
+  return message ? toIpcMessage(message) : null;
+});
+
+ipcMain.handle('peek-message-share', async (event, linkOrId: string) => {
+  if (!shareManager) throw new Error('Share manager not initialized');
+
+  if (!linkOrId || typeof linkOrId !== 'string') {
+    throw new Error('Invalid share identifier');
+  }
+
+  const shareId = extractShareId(linkOrId);
+  const message = shareManager.getMessageShare(shareId, false);
+
+  return message ? toIpcMessage(message) : null;
 });
 
 ipcMain.handle('start-share', async (event, shareId: string) => {
