@@ -4,6 +4,7 @@ import { CloudflareTunnel, TunnelConfig } from './cloudflare-tunnel';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
+import { randomBytes } from 'crypto';
 
 export interface Share {
   id: string;
@@ -15,6 +16,40 @@ export interface Share {
   lastAccessed?: Date;
   url?: string;
   name?: string;
+}
+
+export interface MessageShare<T = unknown> {
+  id: string;
+  payload: T;
+  createdAt: Date;
+  expiresAt: Date;
+  deleteOnRead: boolean;
+  from?: string;
+  recipients: string[];
+  metadata?: Record<string, unknown>;
+  lastAccessed?: Date;
+}
+
+export interface MessageShareOptions<T = unknown> {
+  to?: string | string[];
+  from?: string;
+  expiresIn?: number | string;
+  deleteOnRead?: boolean;
+  metadata?: Record<string, unknown>;
+  prefix?: string;
+  payload?: T;
+}
+
+export interface MessageShareResult<T = unknown> {
+  id: string;
+  payload: T;
+  createdAt: Date;
+  expiresAt: Date;
+  deleteOnRead: boolean;
+  from?: string;
+  recipients: string[];
+  metadata?: Record<string, unknown>;
+  lastAccessed?: Date;
 }
 
 export interface ShareManagerConfig {
@@ -32,6 +67,9 @@ export class ShareManager extends EventEmitter {
   private proxy: DynamicProxy;
   private tunnel: CloudflareTunnel | null = null;
   private isRunning = false;
+  private messageShares: Map<string, MessageShare<any>> = new Map();
+  private inboxes: Map<string, string[]> = new Map();
+  private messageCleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(config: ShareManagerConfig) {
     super();
@@ -92,6 +130,9 @@ export class ShareManager extends EventEmitter {
       // Load existing shares and auto-start active ones (should be none after clearing)
       await this.loadShares();
 
+      // Start message cleanup loop
+      this.startMessageCleanup();
+
       this.isRunning = true;
       console.log('✅ Share Manager started successfully');
       this.emit('started');
@@ -121,6 +162,8 @@ export class ShareManager extends EventEmitter {
 
     // Clear in-memory shares
     this.shares.clear();
+    this.messageShares.clear();
+    this.inboxes.clear();
 
     // Remove the shares.json file to start fresh
     const sharesFile = path.join(this.config.dataPath, 'shares.json');
@@ -162,6 +205,10 @@ export class ShareManager extends EventEmitter {
     if (this.tunnel) {
       await this.tunnel.stop();
     }
+
+    this.stopMessageCleanup();
+    this.messageShares.clear();
+    this.inboxes.clear();
 
     this.isRunning = false;
     console.log('✅ Share Manager stopped');
@@ -390,7 +437,7 @@ export class ShareManager extends EventEmitter {
   private async saveShares(): Promise<void> {
     const sharesFile = path.join(this.config.dataPath, 'shares.json');
     const sharesData = Array.from(this.shares.values());
-    
+
     try {
       fs.writeFileSync(sharesFile, JSON.stringify(sharesData, null, 2));
     } catch (error) {
@@ -398,9 +445,206 @@ export class ShareManager extends EventEmitter {
     }
   }
 
+  public createMessageShare<T = unknown>(payload: T, options: MessageShareOptions = {}): MessageShareResult<T> {
+    const recipients = this.normalizeRecipients(options.to);
+    const deleteOnRead = options.deleteOnRead ?? true;
+    const ttl = this.parseDuration(options.expiresIn);
+    const shareId = this.generateMessageShareId(options.prefix);
+    const now = new Date();
+
+    const messageShare: MessageShare<T> = {
+      id: shareId,
+      payload,
+      createdAt: now,
+      expiresAt: new Date(now.getTime() + ttl),
+      deleteOnRead,
+      from: options.from,
+      recipients,
+      metadata: options.metadata
+    };
+
+    this.messageShares.set(shareId, messageShare);
+
+    recipients.forEach((recipient) => this.addToInbox(recipient, shareId));
+
+    this.emit('message-share-created', messageShare);
+
+    return this.serializeMessageShare(messageShare);
+  }
+
+  public getMessageShare<T = unknown>(shareId: string, consume = false): MessageShareResult<T> | null {
+    const messageShare = this.messageShares.get(shareId) as MessageShare<T> | undefined;
+
+    if (!messageShare) {
+      return null;
+    }
+
+    if (this.isMessageExpired(messageShare)) {
+      this.removeMessageShare(shareId);
+      return null;
+    }
+
+    messageShare.lastAccessed = new Date();
+
+    const result = this.serializeMessageShare(messageShare);
+
+    if (consume) {
+      if (messageShare.deleteOnRead) {
+        this.removeMessageShare(shareId);
+      } else {
+        this.removeFromAllInboxes(shareId);
+      }
+    }
+
+    return result;
+  }
+
+  public consumeInbox<T = unknown>(agentId: string): MessageShareResult<T>[] {
+    const shareIds = this.inboxes.get(agentId) || [];
+    this.inboxes.delete(agentId);
+
+    const messages: MessageShareResult<T>[] = [];
+
+    for (const shareId of shareIds) {
+      const message = this.getMessageShare<T>(shareId, true);
+      if (message) {
+        messages.push(message);
+      }
+    }
+
+    return messages;
+  }
+
+  public getInboxShareIds(agentId: string): string[] {
+    return [...(this.inboxes.get(agentId) || [])];
+  }
+
   private generateShareId(): string {
     // Delegate to DynamicProxy's generator to ensure consistent format (prefixed with "mcc")
     return DynamicProxy.generateShareId();
+  }
+
+  private generateMessageShareId(prefix = 'msg'): string {
+    const sanitizedPrefix = prefix.replace(/\s+/g, '').toLowerCase() || 'msg';
+
+    let shareId: string;
+
+    do {
+      const randomPart = randomBytes(6).toString('hex');
+      shareId = `${sanitizedPrefix}-${randomPart}`;
+    } while (this.messageShares.has(shareId));
+
+    return shareId;
+  }
+
+  private parseDuration(value?: number | string): number {
+    const defaultDuration = 5 * 60 * 1000; // 5 minutes
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return Math.max(value, 0);
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim().toLowerCase();
+      const match = trimmed.match(/^(\d+)([smhd])$/);
+
+      if (match) {
+        const amount = parseInt(match[1], 10);
+        const unit = match[2];
+
+        switch (unit) {
+          case 's':
+            return amount * 1000;
+          case 'm':
+            return amount * 60 * 1000;
+          case 'h':
+            return amount * 60 * 60 * 1000;
+          case 'd':
+            return amount * 24 * 60 * 60 * 1000;
+          default:
+            break;
+        }
+      }
+    }
+
+    return defaultDuration;
+  }
+
+  private normalizeRecipients(to?: string | string[]): string[] {
+    if (!to) {
+      return [];
+    }
+
+    const recipients = Array.isArray(to) ? to : [to];
+    return recipients
+      .map((recipient) => recipient.trim())
+      .filter((recipient) => recipient.length > 0);
+  }
+
+  private addToInbox(agentId: string, shareId: string): void {
+    const inbox = this.inboxes.get(agentId) || [];
+    inbox.push(shareId);
+    this.inboxes.set(agentId, inbox);
+  }
+
+  private removeFromAllInboxes(shareId: string): void {
+    for (const [agentId, inbox] of this.inboxes.entries()) {
+      const filtered = inbox.filter((id) => id !== shareId);
+
+      if (filtered.length === 0) {
+        this.inboxes.delete(agentId);
+      } else if (filtered.length !== inbox.length) {
+        this.inboxes.set(agentId, filtered);
+      }
+    }
+  }
+
+  private removeMessageShare(shareId: string): void {
+    this.messageShares.delete(shareId);
+    this.removeFromAllInboxes(shareId);
+  }
+
+  private serializeMessageShare<T>(share: MessageShare<T>): MessageShareResult<T> {
+    return {
+      id: share.id,
+      payload: share.payload,
+      createdAt: share.createdAt,
+      expiresAt: share.expiresAt,
+      deleteOnRead: share.deleteOnRead,
+      from: share.from,
+      recipients: [...share.recipients],
+      metadata: share.metadata ? { ...share.metadata } : undefined,
+      lastAccessed: share.lastAccessed
+    };
+  }
+
+  private isMessageExpired<T>(share: MessageShare<T>): boolean {
+    return share.expiresAt.getTime() <= Date.now();
+  }
+
+  private startMessageCleanup(): void {
+    if (this.messageCleanupInterval) {
+      return;
+    }
+
+    this.messageCleanupInterval = setInterval(() => {
+      this.cleanupExpiredMessageShares();
+    }, 60 * 1000);
+  }
+
+  private stopMessageCleanup(): void {
+    if (this.messageCleanupInterval) {
+      clearInterval(this.messageCleanupInterval);
+      this.messageCleanupInterval = null;
+    }
+  }
+
+  private cleanupExpiredMessageShares(): void {
+    for (const [shareId, share] of this.messageShares.entries()) {
+      if (this.isMessageExpired(share)) {
+        this.removeMessageShare(shareId);
+      }
+    }
   }
 
   private async findAvailablePort(): Promise<number> {
